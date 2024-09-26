@@ -50,5 +50,3 @@ The UMAT subroutine performs the following main steps:
 - The current implementation assumes small strain theory
 - Thermal effects are not included
 - The model is isotropic
-
-
