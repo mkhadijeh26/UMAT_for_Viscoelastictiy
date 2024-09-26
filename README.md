@@ -51,14 +51,4 @@ The UMAT subroutine performs the following main steps:
 - Thermal effects are not included
 - The model is isotropic
 
-## Contributing
 
-Contributions to improve the UMAT or extend its capabilities are welcome. Please submit pull requests or open issues to discuss potential enhancements.
-
-## License
-
-[Include your chosen license information here]
-
-## Contact
-
-[Your contact information or link to your GitHub profile]
