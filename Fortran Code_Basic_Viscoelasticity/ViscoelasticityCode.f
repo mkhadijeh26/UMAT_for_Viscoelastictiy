@@ -1,105 +1,180 @@
-       SUBROUTINE UMAT(STRESS,STATEV,DDSDDE,SSE,SPD,SCD,
-     1 RPL,DDSDDT,DRPLDE,DRPLDT,
-     2 STRAN,DSTRAN,TIME,DTIME,TEMP,DTEMP,PREDEF,DPRED,CMNAME,
-     3 NDI,NSHR,NTENS,NSTATV,PROPS,NPROPS,COORDS,DROT,PNEWDT,
-     4 CELENT,DFGRD0,DFGRD1,NOEL,NPT,LAYER,KSPT,KSTEP,KINC)
+!!! This one is working 100%
 
-      INCLUDE 'ABA_PARAM.INC'
-
-      CHARACTER*80 CMNAME
-      DIMENSION STRESS(NTENS),STATEV(NSTATV),
-     1 DDSDDE(NTENS,NTENS),DDSDDT(NTENS),DRPLDE(NTENS),
-     2 STRAN(NTENS),DSTRAN(NTENS),TIME(2),PREDEF(1),DPRED(1),
-     3 PROPS(NPROPS),COORDS(3),DROT(3,3),DFGRD0(3,3),DFGRD1(3,3)
-
-      ! Local variables
-      REAL*8 E0, NU, G0, K     !! E0 is the Young's modulus, NU is the Poisson's ratio, G0 is the shear modulus, and K is the bulk modulus
-      REAL*8 GI(10), TAUI(10)  !! GI and TAUI are arrays to store the Prony series coefficients
-      INTEGER NTERMS, I, J     !! NTERMS is the number of terms in the Prony series
-      REAL*8 DVOLSTR, DDEVSTR(6), VOLSTR, DEVSTR(6)  !! DVOLSTR is the volumetric strain increment, DDEVSTR is the deviatoric strain increment
-      REAL*8 QOLD(60), QNEW(60)  !! QOLD and QNEW are arrays to store the internal variables
-      REAL*8 DSTRESS(6), STRESS_VE(6) !! DSTRESS is the stress increment, STRESS_VE is the viscoelastic stress
-
-      ! Material properties
-      E0 = PROPS(1)
-      NU = PROPS(2)
-      NTERMS = NINT(PROPS(3))  
-      ! NINT is a Fortran intrinsic function that stands for "Nearest INTeger." It's used to round a real number to the nearest whole number (integer).
-      DO I = 1, NTERMS   !g_1 , Tau_1 , g_2, Tau_2 , g_3, Tau_3 .... etc
-        GI(I) = PROPS(3+2*I-1)
-        TAUI(I) = PROPS(3+2*I)
-      END DO
-
-      ! Calculate initial shear and bulk moduli
-      G0 = E0 / (2.0D0 * (1.0D0 + NU))
-      K = E0 / (3.0D0 * (1.0D0 - 2.0D0 * NU))
-
-      !! Volumetric Strain (DVOLSTR) represents the change in volume of a material element. 
-      !! -- calculated by summing the normal components of the strain tensor
-      !! Deviatoric Strain (DDEVSTR) represents the change in shape of a material element.
-      !! It is calculated by subtracting the volumetric strain 
-      !!  -- (divided equally across all directions) from the total strain in each direction.
-      ! Calculate volumetric and deviatoric strain increments
-      DVOLSTR = DSTRAN(1) + DSTRAN(2) + DSTRAN(3) !! Volumetric strain increment (trace of strain tensor) (sum of the normal strain components)
-      DO I = 1, NDI
-        DDEVSTR(I) = DSTRAN(I) - DVOLSTR/3.0D0    !! Deviatoric strain increment (deviatoric part of strain tensor) (difference between normal strain component and volumetric strain)
-      END DO
-      DO I = NDI+1, NTENS
-        DDEVSTR(I) = DSTRAN(I)                    !! Deviatoric strain increment (deviatoric part of strain tensor)
-      END DO
-
-      ! Update internal variables (QOLD and QNEW)
-      !! Q represents the portion of stress that relaxes over time.
-      DO I = 1, NTERMS    !! 
-        DO J = 1, NTENS   !! NTENS = 6 (3 normal strain components and 3 shear strain components)
-          QOLD(6*(I-1)+J) = STATEV(6*(I-1)+J) !! QOLD is the value of the internal variable at the previous time step
-          QNEW(6*(I-1)+J) = QOLD(6*(I-1)+J) * EXP(-DTIME/TAUI(I)) +  !! QNEW is the updated value of the internal variable
-     1      2.0D0 * GI(I) * DDEVSTR(J) * (1.0D0 - EXP(-DTIME/TAUI(I)))
-          STATEV(6*(I-1)+J) = QNEW(6*(I-1)+J) !! Update the internal variable in the state variable array
-        END DO
-      END DO
-
-      ! Calculate stress increment
-      DO I = 1, NDI
-        DSTRESS(I) = K * DVOLSTR + 2.0D0 * G0 * DDEVSTR(I)
-      END DO
-      DO I = NDI+1, NTENS
-        DSTRESS(I) = 2.0D0 * G0 * DDEVSTR(I)
-      END DO
-
-      ! Update total stress
-      DO I = 1, NTENS
-        STRESS(I) = STRESS(I) + DSTRESS(I)
-      END DO
-
-      ! Calculate viscoelastic stress
-      DO I = 1, NTENS
-        STRESS_VE(I) = 0.0D0 !!The viscoelastic stress represents the part of the stress that decays over time due to the time-dependent nature of the material (as in the Maxwell model). Subtracting it from the total stress gives the final stress in the material at the current time step, which reflects both the elastic and time-dependent behaviors.
-        DO J = 1, NTERMS
-          STRESS_VE(I) = STRESS_VE(I) + QNEW(6*(J-1)+I) !! The viscoelastic stress is calculated by summing the contributions from each Prony series term
-        END DO
-        STRESS(I) = STRESS(I) - STRESS_VE(I)
-      END DO
-
-      ! Calculate material Jacobian
-      DO I = 1, NTENS
-        DO J = 1, NTENS
-          DDSDDE(I,J) = 0.0D0
-        END DO
-      END DO
-
-      DO I = 1, NDI
-        DDSDDE(I,I) = K + 4.0D0*G0/3.0D0
-        DO J = 1, NDI
-          IF (I .NE. J) THEN
-            DDSDDE(I,J) = K - 2.0D0*G0/3.0D0
-          END IF
-        END DO
-      END DO
-
-      DO I = NDI+1, NTENS
-        DDSDDE(I,I) = G0
-      END DO
-
-      RETURN
-      END
+		    SUBROUTINE UMAT(STRESS,STATEV,DDSDDE,SSE,SPD,SCD,
+      1 RPL,DDSDDT,DRPLDE,DRPLDT,
+      2 STRAN,DSTRAN,TIME,DTIME,TEMP,DTEMP,PREDEF,DPRED,CMNAME,
+      3 NDI,NSHR,NTENS,NSTATEV,PROPS,NPROPS,COORDS,DROT,PNEWDT,
+      4 CELENT,DFGRD0,DFGRD1,NOEL,NPT,LAYER,KSPT,KSTEP,KINC)
+ !.. 
+               INCLUDE 'ABA_PARAM.INC'
+ !..
+       CHARACTER*8 CMNAME
+       DIMENSION STRESS(NTENS),STATEV(NSTATEV),
+      1 DDSDDE(NTENS,NTENS),DDSDDT(NTENS),DRPLDE(NTENS),
+      2 STRAN(NTENS),DSTRAN(NTENS),TIME(2),PREDEF(1),DPRED(1),
+      3 PROPS(NPROPS),COORDS(3),DROT(3,3),DFGRD0(3,3),DFGRD1(3,3)
+       
+       ! Dynamic arrays based on NPT (number of Prony terms)
+       REAL*8, ALLOCATABLE :: G_i(:), TAU_i(:), M_i(:)
+       REAL*8, ALLOCATABLE :: SM_OLD(:,:), SM(:,:), SM_DOT(:,:)
+       REAL*8, ALLOCATABLE :: DEV_STRAIN(:), DEV_DSTRAIN(:)
+       DIMENSION G(6,6)
+       REAL*8 VOL_STRAIN, VOL_DSTRAIN, HYDRO_STRESS
+       REAL*8 G_INF
+       
+ !.. Material Properties
+       E0 = PROPS(1)    ! Instantaneous Young's Modulus
+       NU = PROPS(2)    ! Poisson's Ratio
+       NPT = INT(PROPS(3))  ! Number of Prony series terms
+       
+       ! Allocate arrays based on NPT
+       ALLOCATE(G_i(NPT))
+       ALLOCATE(TAU_i(NPT))
+       ALLOCATE(M_i(NPT))
+       ALLOCATE(SM_OLD(NPT,6))
+       ALLOCATE(SM(NPT,6))
+       ALLOCATE(SM_DOT(NPT,6))
+       ALLOCATE(DEV_STRAIN(6))
+       ALLOCATE(DEV_DSTRAIN(6))
+       
+       ! Read g_i and tau_i values
+       DO I = 1, NPT
+           G_i(I) = PROPS(3+2*I-1)    ! g_i values
+           TAU_i(I) = PROPS(3+2*I)    ! tau_i values
+       END DO
+       
+ !.. Calculate G_infinity (long-term shear modulus ratio)
+       G_INF = 1.0D0
+       DO I = 1, NPT
+           G_INF = G_INF - G_i(I)
+       END DO
+       
+ !.. Calculate instantaneous shear and bulk moduli
+       MU0 = E0/(2.0D0*(1.0D0 + NU))  ! Instantaneous shear modulus
+       K0 = E0/(3.0D0*(1.0D0 - 2.0D0*NU))  ! Instantaneous bulk modulus
+       
+ !.. Read state variables
+       DO N = 1, NPT
+           DO I = 1, 6
+               SM_OLD(N,I) = STATEV((N-1)*6 + I)
+           END DO
+       END DO
+       
+ !.. Calculate M_i terms
+       DO N = 1, NPT
+           M_i(N) = (TAU_i(N)*G_i(N)*MU0 - 
+      1    TAU_i(N)*G_i(N)*MU0*EXP(-DTIME/TAU_i(N)))/(MU0*DTIME)
+       END DO
+       
+ !.. Decompose strain into volumetric and deviatoric parts
+       ! Calculate volumetric strain
+       VOL_STRAIN = (STRAN(1) + STRAN(2) + STRAN(3))/3.D0
+       VOL_DSTRAIN = (DSTRAN(1) + DSTRAN(2) + DSTRAN(3))/3.D0
+       
+       ! Calculate deviatoric strain
+       DO I = 1, 3
+           DEV_STRAIN(I) = STRAN(I) - VOL_STRAIN
+           DEV_DSTRAIN(I) = DSTRAN(I) - VOL_DSTRAIN
+       END DO
+       DO I = 4, 6
+           DEV_STRAIN(I) = STRAN(I)
+           DEV_DSTRAIN(I) = DSTRAN(I)
+       END DO
+       
+ !.. Calculate hydrostatic stress (elastic only)
+       HYDRO_STRESS = 3.D0*K0*(VOL_STRAIN + VOL_DSTRAIN)
+       
+ !.. Calculate total M term for deviatoric part
+       TOTAL_M = 1.D0
+       DO N = 1, NPT
+           TOTAL_M = TOTAL_M + M_i(N)
+       END DO
+       
+ !.. Calculate stresses
+       ! Normal stresses (11, 22, 33)
+       DO I = 1, 3
+           ! Hydrostatic contribution (elastic)
+           STRESS(I) = HYDRO_STRESS
+           
+           ! Long-term elastic deviatoric contribution
+           STRESS(I) = STRESS(I) + 2.D0*MU0*G_INF*DEV_STRAIN(I)
+           
+           ! Add viscoelastic history contribution
+           DO N = 1, NPT
+               STRESS(I) = STRESS(I) + SM_OLD(N,I)
+           END DO
+           
+           ! Add viscoelastic increment contribution
+           STRESS(I) = STRESS(I) + 
+      1      2.D0*MU0*TOTAL_M*DEV_DSTRAIN(I)
+       END DO
+       
+       ! Shear stresses (12, 23, 13)
+       DO I = 4, 6
+           ! Long-term elastic shear contribution
+           STRESS(I) = 2.D0*MU0*G_INF*DEV_STRAIN(I)
+           
+           ! Add viscoelastic history contribution
+           DO N = 1, NPT
+               STRESS(I) = STRESS(I) + SM_OLD(N,I)
+           END DO
+           
+           ! Add viscoelastic increment contribution
+           STRESS(I) = STRESS(I) + 
+      1      2.D0*MU0*TOTAL_M*DEV_DSTRAIN(I)
+       END DO
+       
+ !.. Update internal state variables
+       DO N = 1, NPT
+           ! Normal components
+           DO I = 1, 3
+               SM(N,I) = SM_OLD(N,I) + 
+      1          2.D0*MU0*M_i(N)*DEV_DSTRAIN(I)
+           END DO
+           
+           ! Shear components
+           DO I = 4, 6
+               SM(N,I) = SM_OLD(N,I) + 
+      1          2.D0*MU0*M_i(N)*DEV_DSTRAIN(I)
+           END DO
+       END DO
+       
+ !.. Calculate final state variables
+       DO N = 1, NPT
+           DO I = 1, 6
+               SM_DOT(N,I) = EXP(-DTIME/TAU_i(N))*SM(N,I)
+               STATEV((N-1)*6 + I) = SM_DOT(N,I)
+           END DO
+       END DO
+       
+ !.. Create Jacobian matrix
+       ! First, set everything to zero
+       DO K1 = 1, NTENS
+           DO K2 = 1, NTENS
+               DDSDDE(K2,K1) = 0.D0
+           END DO
+       END DO
+       
+       ! Add bulk (volumetric) contribution
+       DO I = 1, 3
+           DO J = 1, 3
+               DDSDDE(I,J) = K0
+           END DO
+       END DO
+       
+       ! Add shear (deviatoric) contribution
+       DO I = 1, 3
+           DDSDDE(I,I) = DDSDDE(I,I) + 2.D0*MU0*TOTAL_M
+       END DO
+       
+       ! Add shear terms
+       DO I = 4, 6
+           DDSDDE(I,I) = 2.D0*MU0*TOTAL_M
+       END DO
+       
+ !.. Deallocate arrays
+       DEALLOCATE(G_i, TAU_i, M_i, SM_OLD, SM, SM_DOT)
+       DEALLOCATE(DEV_STRAIN, DEV_DSTRAIN)
+       
+       RETURN
+       END
