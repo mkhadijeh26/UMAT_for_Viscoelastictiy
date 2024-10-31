@@ -115,8 +115,8 @@
             DEV_DSTRAIN(I) = DSTRAN(I) - VOL_DSTRAIN
         END DO
         DO I = 4, 6
-            DEV_STRAIN(I) = STRAN(I)
-            DEV_DSTRAIN(I) = DSTRAN(I)
+            DEV_STRAIN(I) = STRAN(I)/2.D0
+            DEV_DSTRAIN(I) = DSTRAN(I)/2.D0
         END DO
         
   !---------------------------------------------------------------------------
