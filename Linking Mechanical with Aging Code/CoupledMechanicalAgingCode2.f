@@ -98,7 +98,7 @@ SUBROUTINE UMAT(STRESS,STATEV,DDSDDE,SSE,SPD,SCD,
      
      DO I = 1, NUM_PRONY_TERMS
          G_i(I) = PROPS(3+2*I-1)    ! Relative moduli
-         TAU_i(I) = PROPS(3+2*I)    ! Relaxation times
+         TAU_i(I) = PROPS(3+2*I) * (1.0D0/AGING_INDEX)   ! Relaxation times
          G_INF = G_INF - G_i(I)     ! Update long-term modulus
          
          ! Calculate integration parameters
