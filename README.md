@@ -1,8 +1,8 @@
-# Viscoelastic Material Model (UMAT) for Abaqus
+# Viscoelastic Material Model (UMAT) for Abaqus including the Aging Effect
 
 ## Overview
 
-This repository contains a user-defined material subroutine (UMAT) for modeling viscoelastic behavior in Abaqus finite element software. The UMAT is implemented in Fortran and can be used to simulate materials with time-dependent mechanical properties.
+This repository contains a user-defined material subroutine (UMAT) for modeling viscoelastic behavior in Abaqus finite element software. The UMAT is implemented in Fortran and can be used to simulate materials with time-dependent mechanical properties with/without the effect of aging.
 
 ## Features
 
